@@ -1,0 +1,11 @@
+10.15.10.31:22,username,password
+uname -a
+who
+last
+hostname
+pwd
+ls -alR
+iostat
+vmstat
+date
+exit

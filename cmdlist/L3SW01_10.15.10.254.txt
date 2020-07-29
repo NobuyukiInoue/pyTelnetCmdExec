@@ -1,0 +1,88 @@
+###---------------------------------------------------------------------###
+### 【正常性確認コマンド群】
+### 対象機器：検証環境用L3SW(Cat3560CG)
+### 対象ＩＰ：10.15.10.254
+### 機種：Catalyst3560CG-8PC-S
+### 作成日：2020/05/13(Wed)
+###---------------------------------------------------------------------###
+10.15.10.254:23,,
+samplepasswd
+
+
+enable
+samplepasswd
+
+terminal length 0
+terminal monitor
+
+show version
+show clock
+
+show module
+show power
+show env all
+
+show interfaces status
+show interfaces counters
+show interfaces counters error
+show interfaces description
+show interfaces trunk
+show interfaces transceiver
+show interfaces transceiver detail
+
+
+show ip interface brief
+show interfaces 
+
+show cdp neighbors
+show lldp neighbors
+show udld neighbors
+
+show vlan summary
+show vlan
+
+
+
+show spanning-tree
+show mac-address-table
+
+show etherchannel summary
+show etherchannel detail
+show etherchannel port
+
+show ip arp
+show ip arp vrf 10
+show ip arp vrf 20
+show ip arp vrf 30
+show ip arp vrf 40
+show ip arp vrf 50
+show ip arp vrf 60
+show ip arp vrf 90
+show ip arp vrf 100
+
+show ip route
+## show ip route vrf * summary
+show ip route vrf *
+
+show ip ospf
+show ip ospf neighbor
+show ip ospf interface
+show ip ospf interface brief
+show ip ospf database
+
+show ip ssh
+
+show access-lists
+
+show mls qos
+show mls qos interface
+show mls qos interface statistics
+
+show standby brief
+show track
+
+
+show running-config
+show logging
+
+quit
