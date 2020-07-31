@@ -345,7 +345,7 @@ def cmdlist_exec_ssh(lines, cn, prompts, enable_log_output, log_path):
                 index = interact.expect(prompt_preStr_Regulars)
         except:
         #   print("except occured.")
-            None
+            pass
 
     #   print("len(interact.current_output) = {0:d}".format(len(interact.current_output)))
         decoded_response = interact.current_output
