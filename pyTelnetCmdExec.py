@@ -38,7 +38,7 @@ def main():
     prompts = [b">$", b"> $", b"#$", b"# $", b"\\$$", b"\\$ $", b"%$", b"% $", b"[Pp]assword: $", b"login: $", b"name: $"]
 
     # Read connection information.
-    cn = set_ConnectionInformation(lines, timeout=10)
+    cn = set_ConnectionInformation(lines, timeout=2)
     if cn.ipaddr == "":
         print("no ipaddr in {0}".format(argv[0]))
         exit(0)
@@ -232,11 +232,12 @@ def cmdlist_exec_telnet(lines, cn, prompts, enable_log_output, log_path):
         line = re.sub('//.*\n', "", line)
         line = line.rstrip()
 
-        if len(line) == 0:
-            continue
-        if count == 0 and ":" in line:
-            count += 1
-            continue
+        if count == 0:
+            if ":" in line:
+                count += 1
+                continue
+            elif len(line) == 0:
+                continue
 
         # Dealing with unread material.
         telnet_eager(tn, wf, responseLog, enable_removeLF=True)
@@ -248,12 +249,26 @@ def cmdlist_exec_telnet(lines, cn, prompts, enable_log_output, log_path):
         if prompt_preStr == None:
             res = tn.expect(prompts, timeout=cn.timeout)
         elif prompt_preStr_Regulars != None:
-            res = tn.expect(prompt_preStr_Regulars, timeout=cn.timeout)
+            # repeat send space for "--More--".
+            while True:
+                res = tn.expect(prompt_preStr_Regulars, timeout=cn.timeout)
+                if res[0] < 2:
+                    break
+
+                """
+                --More--
+                """
+                # Write to stdout and file.
+                decoded_response = res[2].decode()
+                print_and_write(decoded_response, wf, responseLog, enable_removeLF=True)
+
+                # Send Space.
+                tn.write(b" ")
         else:
             res = tn.expect(prompts, timeout=cn.timeout)
-        response = res[2]
 
         # Convert byte to string.
+        response = res[2]
         decoded_response = response.decode()
 
         if prompt_preStr == None:
@@ -268,7 +283,7 @@ def cmdlist_exec_telnet(lines, cn, prompts, enable_log_output, log_path):
                 for buf in responseLog:
                     wf.write(buf.replace("\n", ""))
                 responseLog = None
-                prompt_preStr_Regulars = [b"\n" + prompt_preStr.encode() + b".*$", b"[Pp]assword: "]
+                prompt_preStr_Regulars = [b"\n" + prompt_preStr.encode() + b"[#>%\\$\\(].*$", b"[Pp]assword: ", b"\n --[Mm]ore--.*$", "\n--続きます--.*$".encode(encoding="utf8") ]
 
         # Write to stdout and file.
         print_and_write(decoded_response, wf, responseLog, enable_removeLF=True)
@@ -298,17 +313,15 @@ def cmdlist_exec_ssh(lines, cn, prompts, enable_log_output, log_path):
     interact = paramiko_expect.SSHClientInteraction(client, buffer_size = 10*1024*1024, timeout = cn.timeout, display = False)
 
     index = interact.expect(prompts)
-#   decoded_response = interact.current_output_clean
-    decoded_response = interact.current_output
 
     # Write to stdout and file.
     responseLog = []
-    print_and_write(decoded_response, None, responseLog, enable_removeLF=False)
+    print_and_write(interact.current_output, None, responseLog, enable_removeLF=False)
 
     # prompt string detection
     wf = None
-    prompt_preStr = detect_promptString(decoded_response)
-    prompt_preStr_Regulars = [prompt_preStr + ".*", "[Pp]assword:\s*"]
+    prompt_preStr = detect_promptString(interact.current_output)
+    prompt_preStr_Regulars = [prompt_preStr + "[#>%\\$\\(].*", "[Pp]assword:\s*", ".*\n --[Mm]ore--\s*", ".*\n--続きます--\s*"]
     if prompt_preStr != None and enable_log_output:
         # logfile open.
         wf = open(set_output_filename(prompt_preStr, cn, log_path), mode='wt')
@@ -332,26 +345,35 @@ def cmdlist_exec_ssh(lines, cn, prompts, enable_log_output, log_path):
             continue
 
         # command send.
-    #   print("<<send = {0}>>".format(line), end="")
         interact.send(line)
         count += 1
 
         try:
             if prompt_preStr == None:
-            #   print("<<expext(prompts)>>")
                 index = interact.expect(prompts)
             else:
-            #   print("<<expext(prompt_preStr_Regulars)>>")
-                index = interact.expect(prompt_preStr_Regulars)
+                # repeat send space for "--More--".
+                while True:
+                    index = interact.expect(prompt_preStr_Regulars)
+                    if index < 2:
+                        break
+
+                    """
+                    --More--
+                    """
+                    # Write to stdout and file.
+                    print_and_write(interact.current_output, wf, responseLog, enable_removeLF=False)
+
+                    # Send Space.
+                #   interact.send(" ", newline="")
+                    interact.channel.send(" ")
+
         except:
         #   print("except occured.")
             pass
 
-    #   print("len(interact.current_output) = {0:d}".format(len(interact.current_output)))
-        decoded_response = interact.current_output
-
         # Write to stdout and file.
-        print_and_write(decoded_response, wf, responseLog, enable_removeLF=False)
+        print_and_write(interact.current_output, wf, responseLog, enable_removeLF=False)
 
     if interact != None:
         interact.close()
