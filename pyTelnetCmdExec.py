@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
 
+"""Overview:
+    telnet/ssh client with continuous command execution and automatic log saving function by Python3.
+Usage:
+    pyTelnetCmdExec.py <cmdlist_file> [--log_dir <logdir_path>] [--disable_log] [-h|--help]
+
+Options:
+    --log_dir <logdir_path>  : Specify the log output destination directory.(default="./log/")
+    --disable_log            : Do not output log file.
+    -h, --help               : Show this help message and exit.
+"""
+
 import datetime
+import docopt
 import os
 import paramiko
 import paramiko_expect
@@ -17,22 +29,25 @@ class ConnectionInformation:
         self.timeout = timeout
 
 def main():
-    argv = sys.argv
-    argc = len(argv)
+    args = docopt.docopt(__doc__)
+#   print(args)
 
-    if argc < 2:
-        exit_msg(argv[0])
+    if args["<cmdlist_file>"]:
+        if not os.path.exists(args["<cmdlist_file>"]):
+            print("{0} is not exist.".format(args["<cmdlist_file>"]))
+            exit(1)
+        cmdlist_file_path = args["<cmdlist_file>"]
 
-    if not os.path.exists(argv[1]):
-        print("{0} not found...".format(argv[1]))
-        exit(0)
+    logdir_path = "./log/"
+    if args["--log_dir"]:
+        logdir_path = args["--log_dir"].replace("\\", "/")
 
-    enable_log_output = True
-    if argc >= 3 and argv[2].upper() == "FALSE":
-        enable_log_output = False
+    disable_log_output = False
+    if args["--disable_log"]:
+        disable_log_output = True
 
     # read command list file.
-    lines = read_cmdlist_file(argv[1])
+    lines = read_cmdlist_file(cmdlist_file_path)
 
     # Set of standby prompt characters
     prompts = [b">$", b"> $", b"#$", b"# $", b"\\$$", b"\\$ $", b"%$", b"% $", b"[Pp]assword: $", b"login: $", b"name: $"]
@@ -40,40 +55,39 @@ def main():
     # Read connection information.
     cn = set_ConnectionInformation(lines, timeout=2)
     if cn.ipaddr == "":
-        print("no ipaddr in {0}".format(argv[0]))
+        print("no ipaddr in {0}".format(cmdlist_file_path))
         exit(0)
 
     # Execute command list.
     if cn.port == "22":
         if cn.username == "":
-            print("no username in {0}".format(argv[0]))
+            print("no username in {0}".format(cmdlist_file_path))
             exit(0)
         if cn.passwd == "":
-            print("no password in {0}".format(argv[0]))
+            print("no password in {0}".format(cmdlist_file_path))
             exit(0)
         # SSH
-        cmdlist_exec_ssh(lines, cn, prompts, enable_log_output, "./log/")
+        cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path)
     else:
         # TELNET
-        cmdlist_exec_telnet(lines, cn, prompts, enable_log_output, "./log/")
-
-
-def exit_msg(argv0):
-    """
-    Show usage example and exit.
-    """
-    print("Usage: python {0} [cmdlist_file] <enable_log>".format(argv0))
-    exit(0)
-
+        cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path)
 
 def read_cmdlist_file(cmdlist_filename):
     """
     Read command list file.
     """
-    with open(cmdlist_filename, mode='r') as f:
-        lines = f.readlines()
-        f.close()
-    return lines
+    contents = None
+    encodings = ["ascii", "sjis", "utf8"]
+    for enc in encodings:
+        # Read the contents of a file.
+        try:
+            f = open(cmdlist_filename, "rt", encoding=enc)
+            contents = f.readlines()
+            f.close
+            break
+        except:
+            continue
+    return contents
 
 def set_ConnectionInformation(lines, timeout):
     """
@@ -164,7 +178,7 @@ def detect_promptString(decoded_response):
                     return fld
     pos0 = decoded_response.rfind("\n")
     workLine = decoded_response[pos0 + 1:]
-    prompt_chars = [">", "#", "$", "@"]
+    prompt_chars = [">", "#", "$", "@", "%"]
     prompt_preStr = None
     for ch in prompt_chars:
         pos = workLine.find(ch)
@@ -173,20 +187,27 @@ def detect_promptString(decoded_response):
             break
     return prompt_preStr
 
-def set_output_filename(prompt_preStr, cn, log_path):
+def set_output_filename(prompt_preStr, cn, logdir_path):
     """
     set log output filename.
     """
     prompt_preStr = remove_prohibited_characters(prompt_preStr)
     dtStr = datetime.datetime.now().strftime('_%Y%m%d_%H%M%S')
-    output_filename = log_path + prompt_preStr + "_" + cn.ipaddr + dtStr + ".log"
+
+    if not os.path.exists(logdir_path):
+        os.makedirs(logdir_path)
+
+    if logdir_path[-1] != "/":
+        logdir_path += "/"
+    output_filename = logdir_path + prompt_preStr + "_" + cn.ipaddr + dtStr + ".log"
+
     return output_filename
 
 def remove_prohibited_characters(prompt_preStr):
     """
     Remove prohibited characters.
     """
-    prohibited_chars = ["[", "]", ">", "#", "%", "$", ":", ";", "~"]
+    prohibited_chars = ["[", "]", "<", ">", "#", "%", "$", ":", ";", "~"]
     for ch in prohibited_chars:
         prompt_preStr = prompt_preStr.replace(ch, "")
     return prompt_preStr
@@ -214,7 +235,7 @@ def telnet_eager(tn, wf, responseLog, enable_removeLF):
     if len(response) > 0:
         print_and_write(response.decode(), wf, responseLog, enable_removeLF)
 
-def cmdlist_exec_telnet(lines, cn, prompts, enable_log_output, log_path):
+def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
     """
     Execute command list(TELNET)
     """
@@ -224,7 +245,7 @@ def cmdlist_exec_telnet(lines, cn, prompts, enable_log_output, log_path):
         print("loggin failed to {0}".format(cn.ipaddr))
         exit(0)
 
-    wf, prompt_preStr = None, None
+    wf, prompt_preStr, prompt_preStr_Regulars = None, None, None
     count = 0
     for line in lines:
         # Delete comment section.
@@ -275,9 +296,9 @@ def cmdlist_exec_telnet(lines, cn, prompts, enable_log_output, log_path):
             # prompt string detection
             prompt_preStr = detect_promptString(decoded_response)
 
-            if prompt_preStr != None and enable_log_output:
+            if prompt_preStr != None and disable_log_output == False:
                 # logfile open.
-                wf = open(set_output_filename(prompt_preStr, cn, log_path), mode='wt')
+                wf = open(set_output_filename(prompt_preStr, cn, logdir_path), mode='wt')
 
                 # Write responseLog to file.
                 for buf in responseLog:
@@ -298,7 +319,7 @@ def cmdlist_exec_telnet(lines, cn, prompts, enable_log_output, log_path):
 
     return
 
-def cmdlist_exec_ssh(lines, cn, prompts, enable_log_output, log_path):
+def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
     """
     Execute command list(SSH)
     """
@@ -307,12 +328,20 @@ def cmdlist_exec_ssh(lines, cn, prompts, enable_log_output, log_path):
     prompts = [".*>\s*", ".*#\s*", ".*\$\s*", ".*@.*", ".*%.*", ".*[Pp]assword:\s*"]
 
     # Start SSH connection
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.WarningPolicy())
-    client.connect(cn.ipaddr, username = cn.username, password = cn.passwd)
-    interact = paramiko_expect.SSHClientInteraction(client, buffer_size = 10*1024*1024, timeout = cn.timeout, display = False)
-
-    index = interact.expect(prompts)
+    error_count = 0
+    while True:
+        try:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.WarningPolicy())
+            client.connect(cn.ipaddr, username = cn.username, password = cn.passwd)
+            interact = paramiko_expect.SSHClientInteraction(client, buffer_size = 10*1024*1024, timeout = cn.timeout, display = False)
+            index = interact.expect(prompts, timeout=4)
+        except:
+            error_count += 1
+            if error_count >= 3:
+                exit(0)
+        else:
+            break
 
     # Write to stdout and file.
     responseLog = []
@@ -322,9 +351,9 @@ def cmdlist_exec_ssh(lines, cn, prompts, enable_log_output, log_path):
     wf = None
     prompt_preStr = detect_promptString(interact.current_output)
     prompt_preStr_Regulars = [prompt_preStr + "[#>%\\$\\(].*", "[Pp]assword:\s*", ".*\n --[Mm]ore--\s*", ".*\n--続きます--\s*"]
-    if prompt_preStr != None and enable_log_output:
+    if prompt_preStr != None and disable_log_output == False:
         # logfile open.
-        wf = open(set_output_filename(prompt_preStr, cn, log_path), mode='wt')
+        wf = open(set_output_filename(prompt_preStr, cn, logdir_path), mode='wt')
 
         # Write responseLog to file.
         for buf in responseLog:
