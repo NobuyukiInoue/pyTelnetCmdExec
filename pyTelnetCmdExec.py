@@ -15,10 +15,10 @@ import datetime
 import docopt
 import os
 import paramiko
-import paramiko_expect
 import re
 import sys
 import telnetlib
+import time
 
 class ConnectionInformation:
     def __init__(self, ipaddr, port, username, passwd, timeout):
@@ -114,8 +114,6 @@ def set_ConnectionInformation(lines, timeout):
                         cn.passwd = flds1[2]
                 if cn.ipaddr == "":
                     break
-        elif count > 0:
-            break
     return cn
 
 def print_and_append(buffer, outputString):
@@ -126,66 +124,176 @@ def print_and_append(buffer, outputString):
     if buffer != None:
         buffer.append(outputString)
 
-def connect_telnet(cn, prompts):
+def connect_telnet_from_connectionInformation(cn, prompts):
     """
     Start telnet connection.
     """
-    responseLog = []
+    current_output_log = []
     tn = telnetlib.Telnet(cn.ipaddr, cn.port, cn.timeout)
 
     if tn == None:
-        return None
+        return None, None
 
     if cn.username != "":
         # Wait for username prompt.
-        response = tn.read_until(b': ', cn.timeout)
-        print_and_append(responseLog, response.decode())
+        current_output = tn.read_until(b': ', cn.timeout)
+        print_and_append(current_output_log, current_output.decode())
 
         # Send Username
         tn.write(cn.username.encode() + b"\n")
-        print_and_append(responseLog, cn.username + "\n")
+        print_and_append(current_output_log, cn.username + "\n")
 
         # Wait for password prompt.
-        response = tn.read_until(b': ', cn.timeout)
-        print_and_append(responseLog, response.decode())
+        current_output = tn.read_until(b': ', cn.timeout)
+        print_and_append(current_output_log, current_output.decode())
 
         # Send password
         tn.write(cn.passwd.encode() + b"\n")
-        print_and_append(responseLog, cn.passwd + "\n")
+        print_and_append(current_output_log, cn.passwd + "\n")
 
-        # Wait for prompt.
-        response = tn.expect(prompts, timeout=cn.timeout)
-        if response[0] == -1:
-            return None, responseLog
-
-        print_and_append(responseLog, response[2].decode())
     else:
         # Wait for password prompt.
-        response = tn.read_until(b': ', cn.timeout)
-        print_and_append(responseLog, response.decode())
+        current_output = tn.read_until(b': ', cn.timeout)
+        print_and_append(current_output_log, current_output.decode())
 
-    return tn, responseLog
+    # Wait for prompt.
+    current_output = tn.expect(prompts, timeout=4)
+    decoded_current_output = decode(current_output[2])
+    print_and_append(current_output_log, decoded_current_output)
 
-def detect_promptString(decoded_response):
+    return tn, current_output_log
+
+def connect_telnet_from_lines(cn, lines, prompts):
+    """
+    Start telnet connection.
+    """
+    current_output_log = []
+    tn = telnetlib.Telnet(cn.ipaddr, cn.port, cn.timeout)
+
+    if tn == None:
+        return None, None
+
+    current_output = tn.expect(prompts, timeout=4)
+    decoded_current_output = decode(current_output[2])
+    print_and_append(current_output_log, decoded_current_output)
+
+    line_count = 0
+    for i in range(len(lines)):
+        # Delete comment section.
+        line = re.sub('#.*\n', "", lines[i])
+        line = re.sub('//.*\n', "", line)
+        line = line.rstrip()
+
+        if line_count == 0:
+            if len(line) == 0:
+                continue
+            if ":" in line:
+                line_count += 1
+                continue
+
+        elif line_count == 1:
+            # Send Username or Passwd
+            tn.write(line.encode() + b"\n")
+
+            # Wait for prompt.
+            try:
+                current_output = tn.expect(prompts, timeout=4)
+            except:
+                pass
+            decoded_current_output = decode(current_output[2])
+            print_and_append(current_output_log, decoded_current_output)
+
+            if current_output[0] < 8:
+                break
+            else:
+                line_count += 1
+                continue
+
+        elif line_count == 2:
+            # Send password
+            tn.write(line.encode() + b"\n")
+
+            try:
+                current_output = tn.expect(prompts, timeout=4)
+            except:
+                tn.close()
+                return None, None
+
+            decoded_current_output = decode(current_output[2])
+            print_and_append(current_output_log, decoded_current_output)
+
+            if current_output[0] < 8:
+                break
+            else:
+                tn.close()
+                return None, None
+
+    # Wait for prompt.
+    decoded_current_output = decode(current_output[2])
+    print_and_append(current_output_log, decoded_current_output)
+
+    return tn, current_output_log, lines[i + 1:]
+
+def detect_promptString(decoded_current_output):
     """
     detect prompt string.
     """
-    if "MacBook" in decoded_response:
-        lines = decoded_response.split("\n")
-        for line in lines:
-            for fld in line.split(" "):
-                if "@" in fld:
-                    return fld
-    pos0 = decoded_response.rfind("\n")
-    workLine = decoded_response[pos0 + 1:]
-    prompt_chars = [">", "#", "$", "@", "%"]
+    """
+    if "\x1b" in decoded_current_output:
+        # for powerline.
+        workStr = re.sub("\x1b.*m", "", decoded_current_output)
+    else:
+        workStr = decoded_current_output
+    """
+    lines = decoded_current_output.split("\n")
+    lastLine = lines[-1]
+
+    prompt_chars = ["~", ">", "#", "$", "@", "%", "/"]
     prompt_preStr = None
+
     for ch in prompt_chars:
-        pos = workLine.find(ch)
+        pos = lastLine.find(ch)
         if pos > 0:
-            prompt_preStr = workLine[:pos]
+            prompt_preStr = lastLine[:pos]
             break
+
+    if prompt_preStr == None and len(lines) > 2:
+        lastLine = lines[-2]
+        for ch in prompt_chars:
+            pos = lastLine.find(ch)
+            if pos > 0:
+                prompt_preStr = lastLine[:pos]
+                break
+
+    if prompt_preStr != None:
+        prompt_preStr = re.sub("\x1b.*m", "", prompt_preStr)
+
     return prompt_preStr
+
+def lastline_pattern_match(decoded_current_output, patterns):
+    """
+    detect prompt string.
+    """
+    lastLine = decoded_current_output.split("\n")[-1]
+    for i in range(len(patterns)):
+        res = re.match(patterns[i], lastLine)
+        if res != None:
+            return i
+    return -1
+
+def decode(current_output):
+    """
+    bytes to str
+    """
+    encodings = ["sjis", "utf8", "ascii"]
+    decoded_current_output = ""
+    for enc in encodings:
+        try:
+            decoded_current_output = current_output.decode(enc)
+            break
+        except:
+            continue
+    return decoded_current_output
 
 def set_output_filename(prompt_preStr, cn, logdir_path):
     """
@@ -207,110 +315,163 @@ def remove_prohibited_characters(prompt_preStr):
     """
     Remove prohibited characters.
     """
-    prohibited_chars = ["[", "]", "<", ">", "#", "%", "$", ":", ";", "~"]
+    prohibited_chars = ["[", "]", "<", ">", "#", "%", "$", ":", ";", "~", "\r", "\n"]
     for ch in prohibited_chars:
         prompt_preStr = prompt_preStr.replace(ch, "")
     return prompt_preStr
 
-def print_and_write(outputString, wf, responseLog, enable_removeLF):
+def telnet_read_all(tn, wf, current_output_log, enable_removeLF):
+    """
+    Dealing with unread material.
+    """
+    try:
+        current_output = tn.read_all()
+    except:
+        current_output = ""
+
+    decoded_current_output = decode(current_output)
+    if len(current_output) > 0:
+        if enable_removeLF:
+            print_and_write(decoded_current_output, wf, current_output_log, string_remove = "\n")
+        else:
+            print_and_write(decoded_current_output, wf, current_output_log, string_remove = "")
+    return decoded_current_output
+
+def telnet_read_eager(tn, wf, current_output_log, enable_removeLF):
+    """
+    Dealing with unread material.
+    """
+    """
+    if tn.eof == True:
+        return ""
+    """
+    current_output = tn.read_eager()
+    decoded_current_output = decode(current_output)
+    if len(current_output) > 0:
+        if enable_removeLF:
+            print_and_write(decoded_current_output, wf, current_output_log, string_remove = "\n")
+        else:
+            print_and_write(decoded_current_output, wf, current_output_log, string_remove = "")
+    return decoded_current_output
+
+def print_and_write(outputString, wf, current_output_log, string_remove):
     """
     Write to stdout and file.
     """
     print(outputString, end="")
     if wf != None:
-        if enable_removeLF:
-            wf.write(outputString.replace("\n", ""))
-        else:
-            wf.write(outputString)
-    elif responseLog != None:
-        responseLog.append(outputString)
+        try:
+            if len(string_remove) > 0:
+                wf.write(outputString.replace(string_remove, ""))
+            else:
+                wf.write(outputString)
+        except Exception as e:
+            print("\n{0}e".format(e))
+        #   wf.write(e)
 
-def telnet_eager(tn, wf, responseLog, enable_removeLF):
-    """
-    Dealing with unread material.
-    """
-    if tn.eof == True:
-        return
-    response = tn.read_eager()
-    if len(response) > 0:
-        print_and_write(response.decode(), wf, responseLog, enable_removeLF)
+    elif current_output_log != None:
+        current_output_log.append(outputString)
 
 def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
     """
     Execute command list(TELNET)
     """
     # Start TELNET connection
-    tn, responseLog = connect_telnet(cn, prompts)
+    if cn.username != "" or cn.passwd != "":
+        tn, current_output_log = connect_telnet_from_connectionInformation(cn, prompts)
+    else:
+        tn, current_output_log, lines = connect_telnet_from_lines(cn, lines, prompts)
+
     if tn == None:
         print("loggin failed to {0}".format(cn.ipaddr))
         exit(0)
 
-    wf, prompt_preStr, prompt_preStr_Regulars = None, None, None
-    count = 0
+    prompt_preStr = detect_promptString(current_output_log[-1])
+    while prompt_preStr == None:
+        decoded_current_output = telnet_read_eager(tn, None, None, enable_removeLF=True)
+        prompt_preStr = detect_promptString(decoded_current_output)
+
+    prompt_preStr_Regulars = [prompt_preStr +".*", ".*[Pp]assword: .*", ".*--[Mm]ore--.*", ".*--続きます--.*"]
+
+    if disable_log_output == False:
+        # logfile open.
+        wf = open(set_output_filename(prompt_preStr, cn, logdir_path), mode='wt')
+
+        # Write responseLog to file.
+        for buf in current_output_log:
+            wf.write(buf.replace("\n", ""))
+        current_output_log = None
+    else:
+        wf = None
+
+    line_count = 0
     for line in lines:
         # Delete comment section.
         line = re.sub('#.*\n', "", line)
         line = re.sub('//.*\n', "", line)
         line = line.rstrip()
 
-        if count == 0:
+        if line_count == 0:
+            if len(line) == 0:
+                continue
             if ":" in line:
-                count += 1
+                line_count += 1
                 continue
-            elif len(line) == 0:
-                continue
-
-        # Dealing with unread material.
-        telnet_eager(tn, wf, responseLog, enable_removeLF=True)
 
         # command send.
         tn.write(line.encode() + b"\n")
-        count += 1
+        line_count += 1
 
-        if prompt_preStr == None:
-            res = tn.expect(prompts, timeout=cn.timeout)
-        elif prompt_preStr_Regulars != None:
-            # repeat send space for "--More--".
-            while True:
-                res = tn.expect(prompt_preStr_Regulars, timeout=cn.timeout)
-                if res[0] < 2:
+        decoded_current_output = ""
+        loop_count = 0
+        last_decoded_current_output = None
+        while True:
+            if tn.eof:
+                break
+
+            try:
+                decoded_current_output = telnet_read_eager(tn, wf, None, enable_removeLF=True)
+            except:
+                break
+
+            if len(decoded_current_output) > 0:
+                if "\n" in decoded_current_output:
+                    last_decoded_current_output = decoded_current_output.split("\n")[-1]
+                else:
+                    if last_decoded_current_output == None:
+                        last_decoded_current_output = decoded_current_output
+                    elif last_decoded_current_output == "":
+                        last_decoded_current_output = decoded_current_output
+                    else:
+                        last_decoded_current_output += decoded_current_output
+
+            if last_decoded_current_output != None:
+                index = lastline_pattern_match(last_decoded_current_output, prompt_preStr_Regulars)
+                if index == 0:
                     break
-
-                """
-                --More--
-                """
-                # Write to stdout and file.
-                decoded_response = res[2].decode()
-                print_and_write(decoded_response, wf, responseLog, enable_removeLF=True)
-
-                # Send Space.
-                tn.write(b" ")
-        else:
-            res = tn.expect(prompts, timeout=cn.timeout)
-
-        # Convert byte to string.
-        response = res[2]
-        decoded_response = response.decode()
-
-        if prompt_preStr == None:
-            # prompt string detection
-            prompt_preStr = detect_promptString(decoded_response)
-
-            if prompt_preStr != None and disable_log_output == False:
-                # logfile open.
-                wf = open(set_output_filename(prompt_preStr, cn, logdir_path), mode='wt')
-
-                # Write responseLog to file.
-                for buf in responseLog:
-                    wf.write(buf.replace("\n", ""))
-                responseLog = None
-                prompt_preStr_Regulars = [b"\n" + prompt_preStr.encode() + b"[#>%\\$\\(].*$", b"[Pp]assword: ", b"\n --[Mm]ore--.*$", "\n--続きます--.*$".encode(encoding="utf8") ]
-
-        # Write to stdout and file.
-        print_and_write(decoded_response, wf, responseLog, enable_removeLF=True)
+                elif index == 1:
+                    break
+                elif index >= 2:
+                    """
+                    repeat send space for "--More--".
+                    """
+                    # Send Space.
+                    tn.write(b" ")
+                    loop_count = 0
+                else:
+                    loop_count += 1
+                    if loop_count >= 10000:
+                    #   print("Check!!")
+                        tn.write(b"\r\n")
+                        loop_count = 0
 
     # Dealing with unread material.
-    telnet_eager(tn, wf, None, enable_removeLF=True)
+        while True:
+            if tn.eof:
+                break
+            decoded_current_output = telnet_read_eager(tn, wf, None, enable_removeLF=True)
+            if len(decoded_current_output) <= 0:
+                break
 
     if tn != None:
         tn.close()
@@ -323,19 +484,19 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
     """
     Execute command list(SSH)
     """
-#   PROMPTS = [prompt_byte.decode() for prompt_byte in prompts]
-#   prompts = [".*>\s*", ".*#\s*", ".*\$\s*", ".*@.*\n\~.*", ".*assword:\s*"]
     prompts = [".*>\s*", ".*#\s*", ".*\$\s*", ".*@.*", ".*%.*", ".*[Pp]assword:\s*"]
+    logger = paramiko.util.logging.getLogger()
+    paramiko.util.log_to_file("./log/paramiko_" + datetime.datetime.now().strftime('_%Y%m%d_%H%M%S') + ".log")
 
     # Start SSH connection
     error_count = 0
     while True:
         try:
             client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.WarningPolicy())
+        #   client.set_missing_host_key_policy(paramiko.WarningPolicy())
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             client.connect(cn.ipaddr, username = cn.username, password = cn.passwd)
-            interact = paramiko_expect.SSHClientInteraction(client, buffer_size = 10*1024*1024, timeout = cn.timeout, display = False)
-            index = interact.expect(prompts, timeout=4)
+            ssh_shell = client.invoke_shell()
         except:
             error_count += 1
             if error_count >= 3:
@@ -343,70 +504,93 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
         else:
             break
 
-    # Write to stdout and file.
-    responseLog = []
-    print_and_write(interact.current_output, None, responseLog, enable_removeLF=False)
+    current_output_log = []
+    prompt_preStr = None
 
-    # prompt string detection
-    wf = None
-    prompt_preStr = detect_promptString(interact.current_output)
-    prompt_preStr_Regulars = [prompt_preStr + "[#>%\\$\\(].*", "[Pp]assword:\s*", ".*\n --[Mm]ore--\s*", ".*\n--続きます--\s*"]
-    if prompt_preStr != None and disable_log_output == False:
+    while prompt_preStr == None:
+        if ssh_shell.recv_ready():
+            current_output = ssh_shell.recv(65536 * 10)
+            decoded_current_output = decode(current_output)
+            prompt_preStr = detect_promptString(decoded_current_output)
+            print_and_write(decoded_current_output, None, current_output_log, string_remove="")
+
+    prompt_preStr_Regulars = [prompt_preStr +".*", ".*[Pp]assword: .*", ".*--[Mm]ore--.*", ".*--続きます--.*"]
+
+    if disable_log_output == False:
         # logfile open.
         wf = open(set_output_filename(prompt_preStr, cn, logdir_path), mode='wt')
 
-        # Write responseLog to file.
-        for buf in responseLog:
-            wf.write(buf)
-        responseLog = None
+        # Write current_output_log to file.
+        for buf in current_output_log:
+            wf.write(buf.replace("\r", ""))
+        current_output_log = None
 
-    count = 0
+    else:
+        wf = None
+
+    line_count = 0
     for line in lines:
         # Delete comment section.
         line = re.sub('#.*\n', "", line)
         line = re.sub('//.*\n', "", line)
         line = line.rstrip()
 
-        if len(line) == 0:
-            continue
-        if count == 0 and ":" in line:
-            count += 1
-            continue
+        if line_count == 0:
+            if len(line) == 0:
+                continue
+            if ":" in line:
+                line_count += 1
+                continue
 
         # command send.
-        interact.send(line)
-        count += 1
+    #   interact.send(line)
+        ssh_shell.send(line + "\n")
+        line_count += 1
 
-        try:
-            if prompt_preStr == None:
-                index = interact.expect(prompts)
-            else:
-                # repeat send space for "--More--".
-                while True:
-                    index = interact.expect(prompt_preStr_Regulars)
-                    if index < 2:
+        loop_count = 0
+        while True:
+            # repeat send space for "--More--".
+            if ssh_shell.closed:
+                break
+            if ssh_shell.recv_ready() == False:
+                loop_count += 1
+                if loop_count >= 10000:
+                    if ssh_shell.closed:
                         break
+                    ssh_shell.send("\n")
+                    loop_count = 0
+                continue
+            current_output = ssh_shell.recv(65536 * 10)
+            decoded_current_output = decode(current_output)
+            print_and_write(decoded_current_output, wf, current_output_log, string_remove="\r")
 
-                    """
-                    --More--
-                    """
-                    # Write to stdout and file.
-                    print_and_write(interact.current_output, wf, responseLog, enable_removeLF=False)
+            index = lastline_pattern_match(decoded_current_output, prompt_preStr_Regulars)
+            if index == 0:
+                break
+            elif index == 1:
+                break
+            elif index == 2 or index == 3:
+                """
+                repeat send space for "--More--".
+                """
+                ssh_shell.send(" ")
+                loop_count = 0
+            else:
+                loop_count += 1
+                if loop_count >= 10000:
+                    if ssh_shell.closed:
+                        break
+                    ssh_shell.send("\n")
+                    loop_count = 0
 
-                    # Send Space.
-                #   interact.send(" ", newline="")
-                    interact.channel.send(" ")
+    while ssh_shell.recv_ready():
+        current_output = ssh_shell.recv(65536 * 10)
+        decoded_current_output = decode(current_output)
+        print_and_write(decoded_current_output, wf, current_output_log, string_remove="\r")
 
-        except:
-        #   print("except occured.")
-            pass
+    if ssh_shell != None:
+        ssh_shell.close()
 
-        # Write to stdout and file.
-        print_and_write(interact.current_output, wf, responseLog, enable_removeLF=False)
-
-    if interact != None:
-        interact.close()
-    
     if wf != None:
         wf.close()
 
