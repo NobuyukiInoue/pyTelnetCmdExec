@@ -246,11 +246,13 @@ def detect_prompt_string(decoded_current_output):
     prompt_list[0] ... "Router>"
     prompt_list[1] ... "Router#"
     prompt_list[2] ... "Router(config)#"
+    prompt_list[3] ... "Router(config-line)#"
 
     return example2)
     prompt_list[0] ... "Router> "
     prompt_list[1] ... "Router# "
     prompt_list[2] ... "Router(config)# "
+    prompt_list[3] ... "Router(config-line)# "
     """
 
     lines = decoded_current_output.split("\n")
@@ -273,6 +275,7 @@ def detect_prompt_string(decoded_current_output):
     if prompt_list != None:
         prompt_list.append(prompt_list[0].replace(prompt_list[0][pos], "#"))
         prompt_list.append(prompt_list[1].replace("#", "(config)#"))
+        prompt_list.append(prompt_list[1].replace("#", "(config-line)#"))
 
     return prompt_list
 
