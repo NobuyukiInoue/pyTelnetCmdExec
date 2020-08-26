@@ -168,7 +168,11 @@ def connect_telnet_from_lines(cn, lines, prompts):
     Start telnet connection.
     """
     current_output_log = []
-    tn = telnetlib.Telnet(cn.ipaddr, cn.port, cn.timeout)
+    try:
+        tn = telnetlib.Telnet(cn.ipaddr, cn.port, cn.timeout)
+    except:
+        print("connect failed to {0}".format(cn.ipaddr))
+        exit(0)
 
     if tn == None:
         return None, None
@@ -234,41 +238,52 @@ def connect_telnet_from_lines(cn, lines, prompts):
 
     return tn, current_output_log, lines[i + 1:]
 
-def detect_promptString(decoded_current_output):
+def detect_prompt_string(decoded_current_output):
     """
     detect prompt string.
+
+    return example1)
+    prompt_list[0] ... "Router>"
+    prompt_list[1] ... "Router#"
+    prompt_list[2] ... "Router(config)#"
+
+    return example2)
+    prompt_list[0] ... "Router> "
+    prompt_list[1] ... "Router# "
+    prompt_list[2] ... "Router(config)# "
     """
-    """
-    if "\x1b" in decoded_current_output:
-        # for powerline.
-        workStr = re.sub("\x1b.*m", "", decoded_current_output)
-    else:
-        workStr = decoded_current_output
-    """
+
     lines = decoded_current_output.split("\n")
     lastLine = lines[-1]
 
-    prompt_chars = ["~", ">", "#", "$", "@", "%", "/"]
-    prompt_preStr = None
+    prompt_chars = ["$", ">", "#", "@", "%", "/"]
+    prompt_list = None
+    pos = -1
 
-    for ch in prompt_chars:
-        pos = lastLine.find(ch)
+    for i in range(len(lastLine) - 1, -1, -1):
+        for ch_prompt in prompt_chars:
+            if lastLine[i] == ch_prompt:
+                prompt_list = []
+                prompt_list.append(lastLine)
+                pos = i
+                break
         if pos > 0:
-            prompt_preStr = lastLine[:pos]
             break
 
-    if prompt_preStr == None and len(lines) > 2:
-        lastLine = lines[-2]
-        for ch in prompt_chars:
-            pos = lastLine.find(ch)
-            if pos > 0:
-                prompt_preStr = lastLine[:pos]
-                break
+    if prompt_list != None:
+        prompt_list.append(prompt_list[0].replace(prompt_list[0][pos], "#"))
+        prompt_list.append(prompt_list[1].replace("#", "(config)#"))
 
-    if prompt_preStr != None:
-        prompt_preStr = re.sub("\x1b.*m", "", prompt_preStr)
+    return prompt_list
 
-    return prompt_preStr
+def match_prompt_list(target_str, prompt_list):
+    """
+    Matches any of the prompt candidate strings.
+    """
+    for prompt_str in prompt_list:
+        if target_str == prompt_str:
+            return True
+    return False
 
 def lastline_pattern_match(decoded_current_output, patterns):
     """
@@ -295,11 +310,11 @@ def decode(current_output):
             continue
     return decoded_current_output
 
-def set_output_filename(prompt_preStr, cn, logdir_path):
+def set_output_filename(prompt_str, cn, logdir_path):
     """
     set log output filename.
     """
-    prompt_preStr = remove_prohibited_characters(prompt_preStr)
+    prompt_str = remove_prohibited_characters(prompt_str)
     dtStr = datetime.datetime.now().strftime('_%Y%m%d_%H%M%S')
 
     if not os.path.exists(logdir_path):
@@ -307,18 +322,18 @@ def set_output_filename(prompt_preStr, cn, logdir_path):
 
     if logdir_path[-1] != "/":
         logdir_path += "/"
-    output_filename = logdir_path + prompt_preStr + "_" + cn.ipaddr + dtStr + ".log"
+    output_filename = logdir_path + prompt_str + "_" + cn.ipaddr + dtStr + ".log"
 
     return output_filename
 
-def remove_prohibited_characters(prompt_preStr):
+def remove_prohibited_characters(prompt_str):
     """
     Remove prohibited characters.
     """
-    prohibited_chars = ["[", "]", "<", ">", "#", "%", "$", ":", ";", "~", "\r", "\n"]
+    prohibited_chars = ["[", "]", "<", ">", "#", "%", "$", ":", ";", "~", "\r", " ", "\n"]
     for ch in prohibited_chars:
-        prompt_preStr = prompt_preStr.replace(ch, "")
-    return prompt_preStr
+        prompt_str = prompt_str.replace(ch, "")
+    return prompt_str
 
 def telnet_read_all(tn, wf, current_output_log, enable_removeLF):
     """
@@ -376,9 +391,9 @@ def isPromptsEnd(decoded_current_output):
     """
     decoded_current_output end with a prompt check.
     Example)
-    "Cat3560-CG-1> show "  ... False
-    "Cat3560-CG-1> e"      ... False
-    "Cat3560-CG-1> "       ... True
+    "Router> show "  ... False
+    "Router> e"      ... False
+    "Router> "       ... True
     """
     decoded_prompts1 = ["$",  ">",  "#",  "%",  "/",  "~"]
     decoded_prompts2 = ["$ ", "> ", "# ", "% ", "/ ", "~ "]
@@ -395,22 +410,6 @@ def isPromptsEnd(decoded_current_output):
 
     return False
 
-'''
-def isPromptsEnd(decoded_current_output, decoded_prompts):
-    """
-    decoded_current_output end with a prompt check.
-    Example)
-    "Cat3560-CG-1> show "  ... False
-    "Cat3560-CG-1> e"      ... False
-    "Cat3560-CG-1> "       ... True
-    """
-    for prompt in decoded_prompts:
-        res = re.search(prompt, decoded_current_output)
-        if res != None:
-            return True
-    return False
-'''
-
 def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
     """
     Execute command list(TELNET)
@@ -425,17 +424,17 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
         print("loggin failed to {0}".format(cn.ipaddr))
         exit(0)
 
-    decoded_prompts = [decode(_) for _ in prompts]
-    prompt_preStr = detect_promptString(current_output_log[-1])
-    while prompt_preStr == None:
+#   decoded_prompts = [decode(_) for _ in prompts]
+    prompt_list = detect_prompt_string(current_output_log[-1])
+    while prompt_list == None:
         decoded_current_output = telnet_read_eager(tn, None, None, enable_removeLF=True)
-        prompt_preStr = detect_promptString(decoded_current_output)
+        prompt_list = detect_prompt_string(decoded_current_output)
 
-    prompt_preStr_Regulars = [prompt_preStr +".*[#>$%@~]", ".*[Pp]assword: .*", ".*--[Mm]ore--.*", ".*--続きます--.*"]
+    other_prompt_Regulars = [".*[Pp]assword: .*", ".*]: $", ".*--[Mm]ore--.*", ".*--続きます--.*", "--続ける--"]
 
     if disable_log_output == False:
         # logfile open.
-        wf = open(set_output_filename(prompt_preStr, cn, logdir_path), mode='wt')
+        wf = open(set_output_filename(prompt_list [0], cn, logdir_path), mode='wt')
 
         # Write responseLog to file.
         for buf in current_output_log:
@@ -472,6 +471,10 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
 
         decoded_current_output = ""
         last_decoded_current_output = None
+
+        # set command execution start time.
+        last_command_send_time = time.time()
+
         while True:
             if tn.eof:
                 break
@@ -482,7 +485,13 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
                 break
 
             if len(decoded_current_output) <= 0:
-                continue
+                if time.time() - last_command_send_time > 2.0:
+                    # If one second has passed from the start of command execution, go to the next command
+                    tn.write(b"\r\n")
+                    last_command_send_time = time.time()
+                else:
+                    time.sleep(0.1)
+                    continue
 
             if "\n" in decoded_current_output:
                 last_decoded_current_output = decoded_current_output.split("\n")[-1]
@@ -495,28 +504,50 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
                     last_decoded_current_output += decoded_current_output
 
             if last_decoded_current_output != None:
-                index = lastline_pattern_match(last_decoded_current_output, prompt_preStr_Regulars)
+
+                if match_prompt_list(last_decoded_current_output, prompt_list):
+                    # If it matches any of the prompt candidate strings.
+                    break
+
+                index = lastline_pattern_match(last_decoded_current_output, other_prompt_Regulars)
+
                 if index == 0:
                     """
-                    if isPromptsEnd(last_decoded_current_output, decoded_prompts):
-                        break
+                    match ".*[Pp]assword: .*"
                     """
                     break
-                elif index == 1:
+
+                if index == 1:
+                    """
+                    match ".*]: $"
+
+                    Example1)
+                    last_decoded_current_output ... "How many bits in the modulus [512]: "
+
+                    Example2)
+                    last_decoded_current_output ... "% Do you really want to replace them? [yes/no]: "
+                    """
                     break
+
                 elif index >= 2:
                     """
                     repeat send space for "--More--".
                     """
                     # Send Space.
                     tn.write(b" ")
+                    last_command_send_time = time.time()
+                    continue
+            pass
 
     # Dealing with unread material.
     while True:
         if tn.eof:
             break
-        decoded_current_output = telnet_read_eager(tn, wf, None, enable_removeLF=True)
-        if len(decoded_current_output) <= 0:
+        try:
+            decoded_current_output = telnet_read_eager(tn, wf, None, enable_removeLF=True)
+            if len(decoded_current_output) <= 0:
+                break
+        except:
             break
 
     if tn != None:
@@ -532,7 +563,6 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
     """
 #   logger = paramiko.util.logging.getLogger()
 #   paramiko.util.log_to_file("./log/paramiko_" + datetime.datetime.now().strftime('_%Y%m%d_%H%M%S') + ".log")
-    decoded_prompts = [decode(_) for _ in prompts]
 
     # Start SSH connection
     error_count = 0
@@ -551,20 +581,20 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
             break
 
     current_output_log = []
-    prompt_preStr = None
+    prompt_list = None
 
-    while prompt_preStr == None:
+    while prompt_list == None:
         if ssh_shell.recv_ready():
             current_output = ssh_shell.recv(65536 * 10)
             decoded_current_output = decode(current_output)
-            prompt_preStr = detect_promptString(decoded_current_output)
+            prompt_list = detect_prompt_string(decoded_current_output)
             print_and_write(decoded_current_output, None, current_output_log, string_remove="")
 
-    prompt_preStr_Regulars = [prompt_preStr +".*[#>$%@~]", ".*[Pp]assword: .*", ".*--[Mm]ore--.*", ".*--続きます--.*"]
+    other_prompt_Regulars = [".*[Pp]assword: .*", ".*]: $", ".*--[Mm]ore--.*", ".*--続きます--.*", ".*--続ける--.*"]
 
     if disable_log_output == False:
         # logfile open.
-        wf = open(set_output_filename(prompt_preStr, cn, logdir_path), mode='wt')
+        wf = open(set_output_filename(prompt_list[0], cn, logdir_path), mode='wt')
 
         # Write current_output_log to file.
         for buf in current_output_log:
@@ -581,6 +611,7 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
         print_and_write(decoded_current_output, wf, current_output_log, string_remove="\r")
 
     line_count = 0
+    last_decoded_current_output = None
     for line in lines:
         # Delete comment section.
         line = re.sub('#.*\n', "", line)
@@ -599,13 +630,22 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
         ssh_shell.send(line + "\n")
         line_count += 1
 
+        # set command execution start time.
+        last_command_send_time = time.time()
+
         while True:
             # repeat send space for "--More--".
             if ssh_shell.closed:
                 break
 
             if ssh_shell.recv_ready() == False:
-                continue
+                if time.time() - last_command_send_time > 2.0:
+                    # If one second has passed from the start of command execution, go to the next command
+                    ssh_shell.send("\r\n")
+                    last_command_send_time = time.time()
+                else:
+                    time.sleep(0.1)
+                    continue
 
             current_output = ssh_shell.recv(65536 * 10)
             decoded_current_output = decode(current_output)
@@ -628,27 +668,46 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
                 if len(last_decoded_current_output) <= 0:
                     continue
 
-                index = lastline_pattern_match(last_decoded_current_output, prompt_preStr_Regulars)
+                if match_prompt_list(last_decoded_current_output, prompt_list):
+                    # If it matches any of the prompt candidate strings.
+                    break
+
+                index = lastline_pattern_match(last_decoded_current_output, other_prompt_Regulars)
 
                 if index == 0:
-                #   if isPromptsEnd(last_decoded_current_output, decoded_prompts):
-                    if isPromptsEnd(last_decoded_current_output):
-                        break
-                elif index == 1:
+                    """
+                    match ".*[Pp]assword: .*"
+                    """
                     break
+
+                if index == 1:
+                    """
+                    match ".*]: $"
+
+                    Example1)
+                    last_decoded_current_output ... "How many bits in the modulus [512]: "
+
+                    Example2)
+                    last_decoded_current_output ... "% Do you really want to replace them? [yes/no]: "
+                    """
+                    break
+
                 elif index >= 2:
                     """
                     repeat send space for "--More--".
                     """
                     ssh_shell.send(" ")
+                    last_command_send_time = time.time()
 
     # Dealing with unread material.
-#   while ssh_shell.recv_ready():
     while True:
-        current_output = ssh_shell.recv(65536 * 10)
-        decoded_current_output = decode(current_output)
-        print_and_write(decoded_current_output, wf, current_output_log, string_remove="\r")
-        if len(decoded_current_output) <= 0:
+        try:
+            current_output = ssh_shell.recv(65536 * 10)
+            decoded_current_output = decode(current_output)
+            print_and_write(decoded_current_output, wf, current_output_log, string_remove="\r")
+            if len(decoded_current_output) <= 0:
+                break
+        except:
             break
 
     if ssh_shell != None:
