@@ -121,7 +121,7 @@ def print_and_append(buffer, outputString):
     print and append to list output string.
     """
     print(outputString, end="")
-    if buffer != None:
+    if buffer is not None:
         buffer.append(outputString)
 
 def connect_telnet_from_connectionInformation(cn, prompts):
@@ -272,7 +272,7 @@ def detect_prompt_string(decoded_current_output):
         if pos > 0:
             break
 
-    if prompt_list != None:
+    if prompt_list is not None:
         prompt_list.append(prompt_list[0].replace(prompt_list[0][pos], "#"))
         prompt_list.append(prompt_list[1].replace("#", "(config)#"))
         prompt_list.append(prompt_list[1].replace("#", "(config-line)#"))
@@ -295,7 +295,7 @@ def lastline_pattern_match(decoded_current_output, patterns):
     lastLine = decoded_current_output.split("\n")[-1]
     for i in range(len(patterns)):
         res = re.match(patterns[i], lastLine)
-        if res != None:
+        if res is not None:
             return i
     return -1
 
@@ -384,7 +384,7 @@ def print_and_write(outputString, wf, current_output_log, string_remove):
     Write to stdout and file.
     """
     print(outputString, end="")
-    if wf != None:
+    if wf is not None:
         try:
             if len(string_remove) > 0:
                 wf.write(outputString.replace(string_remove, ""))
@@ -394,7 +394,7 @@ def print_and_write(outputString, wf, current_output_log, string_remove):
             print("\n{0}e".format(e))
         #   wf.write(e)
 
-    elif current_output_log != None:
+    elif current_output_log is not None:
         current_output_log.append(outputString)
 
 def isPromptsEnd(decoded_current_output):
@@ -513,7 +513,7 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
                 else:
                     last_decoded_current_output += decoded_current_output
 
-            if last_decoded_current_output != None:
+            if last_decoded_current_output is not None:
 
                 if match_prompt_list(last_decoded_current_output, prompt_list):
                     # If it matches any of the prompt candidate strings.
@@ -560,9 +560,9 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
         except:
             break
 
-    if tn != None:
+    if tn is not None:
         tn.close()
-    if wf != None:
+    if wf is not None:
         wf.close()
 
     return
@@ -674,7 +674,7 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
                 else:
                     last_decoded_current_output += decoded_current_output
 
-            if last_decoded_current_output != None:
+            if last_decoded_current_output is not None:
                 if len(last_decoded_current_output) <= 0:
                     continue
 
@@ -720,10 +720,10 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
         except:
             break
 
-    if ssh_shell != None:
+    if ssh_shell is not None:
         ssh_shell.close()
 
-    if wf != None:
+    if wf is not None:
         wf.close()
 
     return
