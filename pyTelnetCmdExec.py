@@ -131,7 +131,7 @@ def connect_telnet_from_connectionInformation(cn, prompts):
     current_output_log = []
     tn = telnetlib.Telnet(cn.ipaddr, cn.port, cn.timeout)
 
-    if tn == None:
+    if tn is None:
         return None, None
 
     if cn.username != "":
@@ -174,7 +174,7 @@ def connect_telnet_from_lines(cn, lines, prompts):
         print("connect failed to {0}".format(cn.ipaddr))
         exit(0)
 
-    if tn == None:
+    if tn is None:
         return None, None
 
     current_output = tn.expect(prompts, timeout=4)
@@ -334,9 +334,16 @@ def remove_prohibited_characters(prompt_str):
     Remove prohibited characters.
     """
     prohibited_chars = ["[", "]", "<", ">", "#", "%", "$", ":", ";", "~", "\r", " ", "\n"]
+    result_str = prompt_str
     for ch in prohibited_chars:
-        prompt_str = prompt_str.replace(ch, "")
-    return prompt_str
+        result_str = result_str.replace(ch, "")
+
+    if "\x1b" in result_str:
+        # for powerline.
+        result_str = re.sub("\x1b.*h", "", result_str)
+        result_str = re.sub("\x1b.*m", "", result_str)
+
+    return result_str
 
 def telnet_read_all(tn, wf, current_output_log, enable_removeLF):
     """
@@ -423,13 +430,13 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
     else:
         tn, current_output_log, lines = connect_telnet_from_lines(cn, lines, prompts)
 
-    if tn == None:
+    if tn is None:
         print("loggin failed to {0}".format(cn.ipaddr))
         exit(0)
 
 #   decoded_prompts = [decode(_) for _ in prompts]
     prompt_list = detect_prompt_string(current_output_log[-1])
-    while prompt_list == None:
+    while prompt_list is None:
         decoded_current_output = telnet_read_eager(tn, None, None, enable_removeLF=True)
         prompt_list = detect_prompt_string(decoded_current_output)
 
@@ -499,7 +506,7 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
             if "\n" in decoded_current_output:
                 last_decoded_current_output = decoded_current_output.split("\n")[-1]
             else:
-                if last_decoded_current_output == None:
+                if last_decoded_current_output is None:
                     last_decoded_current_output = decoded_current_output
                 elif last_decoded_current_output == "":
                     last_decoded_current_output = decoded_current_output
@@ -586,7 +593,7 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
     current_output_log = []
     prompt_list = None
 
-    while prompt_list == None:
+    while prompt_list is None:
         if ssh_shell.recv_ready():
             current_output = ssh_shell.recv(65536 * 10)
             decoded_current_output = decode(current_output)
@@ -660,7 +667,7 @@ def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
             if "\n" in decoded_current_output:
                 last_decoded_current_output = decoded_current_output.split("\n")[-1]
             else:
-                if last_decoded_current_output == None:
+                if last_decoded_current_output is None:
                     last_decoded_current_output = decoded_current_output
                 elif last_decoded_current_output == "":
                     last_decoded_current_output = decoded_current_output
