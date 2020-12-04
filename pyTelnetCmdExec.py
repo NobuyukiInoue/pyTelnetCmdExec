@@ -72,7 +72,7 @@ def main():
         # TELNET
         cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path)
 
-def read_cmdlist_file(cmdlist_filename):
+def read_cmdlist_file(cmdlist_filename: str) -> [str]:
     """
     Read command list file.
     """
@@ -89,7 +89,7 @@ def read_cmdlist_file(cmdlist_filename):
             continue
     return contents
 
-def set_ConnectionInformation(lines, timeout):
+def set_ConnectionInformation(lines: [str], timeout: int) -> ConnectionInformation:
     """
     Read connection information.
     """
@@ -116,7 +116,7 @@ def set_ConnectionInformation(lines, timeout):
                     break
     return cn
 
-def print_and_append(buffer, outputString):
+def print_and_append(buffer: [str], outputString: str):
     """
     print and append to list output string.
     """
@@ -124,7 +124,7 @@ def print_and_append(buffer, outputString):
     if buffer is not None:
         buffer.append(outputString)
 
-def connect_telnet_from_connectionInformation(cn, prompts):
+def connect_telnet_from_connectionInformation(cn: ConnectionInformation, prompts: [bytes]):
     """
     Start telnet connection.
     """
@@ -163,7 +163,7 @@ def connect_telnet_from_connectionInformation(cn, prompts):
 
     return tn, current_output_log
 
-def connect_telnet_from_lines(cn, lines, prompts):
+def connect_telnet_from_lines(cn: ConnectionInformation, lines: [str], prompts: [bytes]) -> (telnetlib.Telnet, [str], [str]):
     """
     Start telnet connection.
     """
@@ -238,7 +238,7 @@ def connect_telnet_from_lines(cn, lines, prompts):
 
     return tn, current_output_log, lines[i + 1:]
 
-def detect_prompt_string(decoded_current_output):
+def detect_prompt_string(decoded_current_output: str) -> [str]:
     """
     detect prompt string.
 
@@ -279,7 +279,7 @@ def detect_prompt_string(decoded_current_output):
 
     return prompt_list
 
-def match_prompt_list(target_str, prompt_list):
+def match_prompt_list(target_str: str, prompt_list: [str]) -> bool:
     """
     Matches any of the prompt candidate strings.
     """
@@ -288,7 +288,7 @@ def match_prompt_list(target_str, prompt_list):
             return True
     return False
 
-def lastline_pattern_match(decoded_current_output, patterns):
+def lastline_pattern_match(decoded_current_output: str, patterns: [str]) -> int:
     """
     detect prompt string.
     """
@@ -299,7 +299,7 @@ def lastline_pattern_match(decoded_current_output, patterns):
             return i
     return -1
 
-def decode(current_output):
+def decode(current_output: bytes) -> str:
     """
     bytes to str
     """
@@ -313,7 +313,7 @@ def decode(current_output):
             continue
     return decoded_current_output
 
-def set_output_filename(prompt_str, cn, logdir_path):
+def set_output_filename(prompt_str: [str], cn: ConnectionInformation, logdir_path: str) -> str:
     """
     set log output filename.
     """
@@ -329,7 +329,7 @@ def set_output_filename(prompt_str, cn, logdir_path):
 
     return output_filename
 
-def remove_prohibited_characters(prompt_str):
+def remove_prohibited_characters(prompt_str: str) -> str:
     """
     Remove prohibited characters.
     """
@@ -345,7 +345,7 @@ def remove_prohibited_characters(prompt_str):
 
     return result_str
 
-def telnet_read_all(tn, wf, current_output_log, enable_removeLF):
+def telnet_read_all(tn: telnetlib.Telnet, wf: object, current_output_log: [str], enable_removeLF: bool) -> str:
     """
     Dealing with unread material.
     """
@@ -362,7 +362,7 @@ def telnet_read_all(tn, wf, current_output_log, enable_removeLF):
             print_and_write(decoded_current_output, wf, current_output_log, string_remove = "")
     return decoded_current_output
 
-def telnet_read_eager(tn, wf, current_output_log, enable_removeLF):
+def telnet_read_eager(tn: telnetlib.Telnet, wf: object, current_output_log: [str], enable_removeLF: bool) -> str:
     """
     Dealing with unread material.
     """
@@ -379,7 +379,7 @@ def telnet_read_eager(tn, wf, current_output_log, enable_removeLF):
             print_and_write(decoded_current_output, wf, current_output_log, string_remove = "")
     return decoded_current_output
 
-def print_and_write(outputString, wf, current_output_log, string_remove):
+def print_and_write(outputString: str, wf: object, current_output_log: [str], string_remove: str):
     """
     Write to stdout and file.
     """
@@ -397,7 +397,7 @@ def print_and_write(outputString, wf, current_output_log, string_remove):
     elif current_output_log is not None:
         current_output_log.append(outputString)
 
-def isPromptsEnd(decoded_current_output):
+def isPromptsEnd(decoded_current_output: [str]) -> bool:
     """
     decoded_current_output end with a prompt check.
     Example)
@@ -420,7 +420,7 @@ def isPromptsEnd(decoded_current_output):
 
     return False
 
-def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
+def cmdlist_exec_telnet(lines: [str], cn: ConnectionInformation, prompts: [bytes], disable_log_output: bool, logdir_path: str):
     """
     Execute command list(TELNET)
     """
@@ -567,7 +567,7 @@ def cmdlist_exec_telnet(lines, cn, prompts, disable_log_output, logdir_path):
 
     return
 
-def cmdlist_exec_ssh(lines, cn, prompts, disable_log_output, logdir_path):
+def cmdlist_exec_ssh(lines: [str], cn: ConnectionInformation, prompts: [bytes], disable_log_output: bool, logdir_path: str):
     """
     Execute command list(SSH)
     """
